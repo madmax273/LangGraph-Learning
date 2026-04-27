@@ -30,11 +30,24 @@ if user_input and user_input.strip():  # Check if input exists and is not empty
     config = {"configurable": {"thread_id": "1"}}
     result = chatbot.invoke({"messages": [HumanMessage(content=user_input)]}, config=config)
     
-    # Add bot response to session state
-    bot_response = result["messages"][-1].content
-    st.session_state["message_history"].append({"role": "assistant", "content": bot_response})
+    # # Add bot response to session state
+    # bot_response = result["messages"][-1].content
+    # st.session_state["message_history"].append({"role": "assistant", "content": bot_response})
     
     # Display bot response
     with st.chat_message("assistant"):
-        st.text(bot_response)
-         
+
+        bot_response = st.write_stream(
+            message_chunk.content 
+            for message_chunk, metadata in chatbot.stream(
+                {"messages": [HumanMessage(content=user_input)]}, 
+                config=config,
+                stream_mode="messages"
+            )
+        )
+        
+    # Add bot response to session state
+    st.session_state["message_history"].append({"role": "assistant", "content": bot_response})
+
+
+        
