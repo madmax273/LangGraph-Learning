@@ -2,6 +2,16 @@ import streamlit as st
 from bot1 import chatbot
 from langchain_core.messages import HumanMessage
 from uuid import uuid4
+from bot1 import retrieve_All_threads
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+LANGSMITH_TRACING = os.environ.get("LANGSMITH_TRACING")
+LANGSMITH_API_KEY = os.environ.get("LANGSMITH_API_KEY")
+LANGSMITH_PROJECT = os.environ.get("LANGSMITH_PROJECT")
+LANGSMITH_ENDPOINT = os.environ.get("LANGSMITH_ENDPOINT")
 
 st.title("🤖 Chatbot")
 
@@ -29,7 +39,7 @@ if "message_history" not in st.session_state:
     st.session_state["message_history"] = []
 
 if "threads" not in st.session_state:
-    st.session_state["threads"] = []    
+    st.session_state["threads"] = retrieve_All_threads()    
 
 if "thread_id" not in st.session_state:
     st.session_state["thread_id"] = get_thread_id()
