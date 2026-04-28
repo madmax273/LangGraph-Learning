@@ -9,6 +9,8 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph.message import add_messages
 import sqlite3
 import os
+from chatbot_tools import tools
+from langgraph.prebuilt import ToolNode, tools_condition
 
 load_dotenv()  
 
@@ -23,13 +25,19 @@ class chatstate(TypedDict):
 
 def chat(state: chatstate) -> chatstate:
     model = ChatGroq(model="llama-3.1-8b-instant")
+    model_with_tools = model.bind_tools(tools)
     prompt = PromptTemplate.from_template("You are a helpful assistant. Answer the following question: {question}")
-    response = model.invoke(state["messages"])
+    response = model_with_tools.invoke(state["messages"])
     return {"messages": [response]}
+
+tool_node = ToolNode(tools)
 
 graph = StateGraph(chatstate)
 graph.add_node("chat", chat)
+graph.add_node("tools", tool_node)
 graph.add_edge(START, "chat")
+graph.add_conditional_edges("chat", tools_condition)
+graph.add_edge("tools", "chat")
 graph.add_edge("chat", END)
 
 sqlite_conn = sqlite3.connect("chatbot.db",check_same_thread=False)
