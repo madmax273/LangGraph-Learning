@@ -1,66 +1,58 @@
-from langgraph.graph import StateGraph, START, END
-from typing import TypedDict, Annotated   
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-from langchain_core.prompts import PromptTemplate
-from langchain_core.messages import BaseMessage, HumanMessage
-from langgraph.graph.message import add_messages
-import sqlite3
-import os
-from chatbot_tools import tools
-from langgraph.prebuilt import ToolNode, tools_condition
+import asyncio
+import logging
+from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-load_dotenv()  
+# Local modular imports
+from agent import uncompiled_graph
+from database import retrieve_all_threads_sync, DB_PATH
 
-LANGSMITH_TRACING = "true"
-LANGSMITH_API_KEY = os.environ.get("LANGSMITH_API_KEY")
-LANGSMITH_PROJECT = os.environ.get("LANGSMITH_PROJECT")
-LANGSMITH_ENDPOINT = os.environ.get("LANGSMITH_ENDPOINT")
+# Alias for backward compatibility with streamlit.py
+retrieve_All_threads = retrieve_all_threads_sync
 
-class chatstate(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
+logger = logging.getLogger(__name__)
 
-
-def chat(state: chatstate) -> chatstate:
-    model = ChatGroq(model="llama-3.1-8b-instant")
-    model_with_tools = model.bind_tools(tools)
-    prompt = PromptTemplate.from_template("You are a helpful assistant. Answer the following question: {question}")
-    response = model_with_tools.invoke(state["messages"])
-    return {"messages": [response]}
-
-tool_node = ToolNode(tools)
-
-graph = StateGraph(chatstate)
-graph.add_node("chat", chat)
-graph.add_node("tools", tool_node)
-graph.add_edge(START, "chat")
-graph.add_conditional_edges("chat", tools_condition)
-graph.add_edge("tools", "chat")
-graph.add_edge("chat", END)
-
-sqlite_conn = sqlite3.connect("chatbot.db",check_same_thread=False)
-
-checkpointer = SqliteSaver(conn=sqlite_conn)
-
-chatbot = graph.compile(checkpointer=checkpointer)
-
-def retrieve_All_threads():
-    threads=set()
-    for thread in checkpointer.list(None):
-        threads.add(thread.config["configurable"]["thread_id"])
-    return list(threads)
-
-if __name__ == "__main__":
+async def run_cli():
+    """
+    Run the asynchronous chatbot CLI.
+    """
+    print("Welcome to the AI Chatbot! Type 'exit' to quit.")
     config = {"configurable": {"thread_id": "2"}}
 
-    while True:
-        user_input = input("You: ")
-        if user_input.lower() == "exit":
-            break
-        response = chatbot.invoke({"messages": [HumanMessage(content=user_input)]}, config=config)
+    async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
+        chatbot = uncompiled_graph.compile(checkpointer=checkpointer)
 
-        print("Bot:", response["messages"][-1].content)
+        while True:
+            try:
+                user_input = input("You: ")
+                if user_input.lower() == "exit":
+                    print("Goodbye!")
+                    break
+                
+                if not user_input.strip():
+                    continue
 
+                # Asynchronously invoke the chatbot
+                response = await chatbot.ainvoke(
+                    {"messages": [HumanMessage(content=user_input)]}, 
+                    config=config
+                )
+
+                # The response contains the state; get the last message content
+                bot_response = response["messages"][-1].content
+                print(f"Bot: {bot_response}")
+                
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                break
+            except Exception as e:
+                logger.error(f"An error occurred during interaction: {e}")
+                print("Bot: Sorry, something went wrong. Please try again.")
+
+if __name__ == "__main__":
+    # Run the async CLI loop
+    try:
+        asyncio.run(run_cli())
+    except Exception as e:
+        logger.critical(f"Fatal error running CLI: {e}")
 
