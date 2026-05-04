@@ -1,10 +1,11 @@
 from langchain_core.tools import tool
 from dotenv import load_dotenv
-import logging
+from logger_setup import get_logger
 from datetime import datetime
 
 load_dotenv()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
 
 ### TOOLs ###
 
@@ -38,4 +39,5 @@ async def calculate(first_number: float, second_number: float, operator: str) ->
         logger.error(f"Error in calculation tool: {e}")
         return f"Error: {str(e)}"
 
-tools = [get_current_time, calculate]
+base_tools = [get_current_time, calculate]
+

@@ -1,9 +1,9 @@
 import sqlite3
-import logging
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from logger_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 DB_PATH = "chatbot.db"
 

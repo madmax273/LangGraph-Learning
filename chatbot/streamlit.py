@@ -1,22 +1,25 @@
 import asyncio
 import streamlit as st
 import os
-import logging
 from uuid import uuid4
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+# MCP Imports
+from MCP_client import MCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+
 # Import from the refactored bot module
-from agent import uncompiled_graph
+from agent import build_dynamic_graph
 from bot1 import retrieve_All_threads
 from database import DB_PATH, get_sync_checkpointer
+from logger_setup import get_logger
 
 load_dotenv()
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Setup centralized logging
+logger = get_logger(__name__)
 
 LANGSMITH_TRACING = os.environ.get("LANGSMITH_TRACING")
 LANGSMITH_API_KEY = os.environ.get("LANGSMITH_API_KEY")
@@ -37,9 +40,9 @@ def new_chat():
 
 def load_chat(thread_id):
     try:
-        # Load messages synchronously using SqliteSaver
+        # Load messages synchronously using SqliteSaver. Empty tools list is fine for reading state.
         checkpointer, conn = get_sync_checkpointer()
-        chatbot_sync = uncompiled_graph.compile(checkpointer=checkpointer)
+        chatbot_sync = build_dynamic_graph([]).compile(checkpointer=checkpointer)
         state = chatbot_sync.get_state(config={"configurable": {"thread_id": thread_id}})
         mess = state.values.get("messages", []) if hasattr(state, 'values') else []
         conn.close()
@@ -76,7 +79,7 @@ with st.sidebar:
     
     st.divider()
     for thread_id in st.session_state["threads"]:
-        if st.button(f"Chat {thread_id[:8]}...", key=f"chat_{thread_id}"):
+        if st.button(f"Chat {thread_id[:15]}...", key=f"chat_{thread_id}"):
             st.session_state["thread_id"] = thread_id
             loaded_messages = load_chat(thread_id)
             temp_messages = []
@@ -119,24 +122,49 @@ if user_input and user_input.strip():
         async def process_stream():
             response_chunks = []
             bot_response = ""
+            client = MCPClient()
             try:
+                # Initialize MCP client and fetch tools dynamically
+                await client.load_from_config("server_config.json")
+                mcp_tools = []
+                for session in client.sessions.values():
+                    # Load Langchain tools from the MCP session
+                    mcp_tools.extend(await load_mcp_tools(session))
+                    
+                # Build the dynamic graph including MCP tools
+                uncompiled_graph = build_dynamic_graph(mcp_tools)
+                
                 # Use AsyncSqliteSaver for the async execution
                 async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
                     chatbot_async = uncompiled_graph.compile(checkpointer=checkpointer)
+                    
+                    from langchain_core.messages import AIMessageChunk
                     # Use astream for asynchronous streaming
                     async for message_chunk, metadata in chatbot_async.astream(
                         {"messages": [HumanMessage(content=user_input)]}, 
                         config=config,
                         stream_mode="messages"
                     ):
-                        if hasattr(message_chunk, 'content') and message_chunk.content:
-                            bot_response += message_chunk.content
-                            placeholder.markdown(bot_response)
+                        if isinstance(message_chunk, AIMessageChunk):
+                            if hasattr(message_chunk, 'content') and message_chunk.content:
+                                if isinstance(message_chunk.content, list):
+                                    for block in message_chunk.content:
+                                        if isinstance(block, dict) and "text" in block:
+                                            bot_response += block["text"]
+                                        elif isinstance(block, str):
+                                            bot_response += block
+                                else:
+                                    bot_response += str(message_chunk.content)
+                                
+                                placeholder.markdown(bot_response)
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
-                error_msg = "An error occurred while fetching the response."
+                error_msg = f"An error occurred: {e}"
                 placeholder.markdown(f"**Error:** {error_msg}")
                 bot_response = error_msg
+            finally:
+                # Always safely close MCP connections
+                await client.close()
                 
             return bot_response
         

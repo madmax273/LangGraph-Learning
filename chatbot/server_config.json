@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "demo-mcp-server": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp",
+        "fastmcp",
+        "run",
+        "C:\\Users\\punit\\OneDrive\\Desktop\\MCP\\MCP_Servers\\DEMO_MCP_SERVER\\main.py"
+      ],
+      "env": {}
+    },
+    "SecureFileEditor": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp",
+        "fastmcp",
+        "run",
+        "C:\\Users\\punit\\OneDrive\\Desktop\\Windows-mcp-server\\main.py"
+      ],
+      "env": {}
+    }
+  }
+}
